@@ -109,9 +109,9 @@ struct TiffImage::MyTIFF : public TIFF {
 
 TiffImage::TiffImage(TiffImage::MyTIFF *imgPtr) : tif(imgPtr, (void (*)(MyTIFF *)) (&TIFFClose)) {}
 
-TiffImage TiffImage::openTiff(const fs::path &p, const std::string &mode) {
+TiffImage TiffImage::openTiff(const fs::path &p) {
     initTiffTags();
-    auto *img = (MyTIFF *) (TIFFOpen(p.string().c_str(), mode.c_str()));
+    auto *img = (MyTIFF *) (TIFFOpen(p.string().c_str(), "r"));
     return TiffImage(img);
 }
 
@@ -258,4 +258,15 @@ std::vector<uint16_t> TiffImage::getExtraSamples() const {
 
 uint16_t TiffImage::getNumberOfDirectory() const {
     return TIFFNumberOfDirectories(tif.get());
+}
+
+void TiffImage::readData(std::vector<uint32_t> &raster) const {
+    uint64_t image_width = getImageWidth();
+    uint32_t image_height = getImageHeight();
+    raster.resize(image_width * image_height);
+
+    if (TIFFReadRGBAImageOriented(tif.get(), image_width, image_height, raster.data(),
+                                  ORIENTATION_TOPLEFT, 1) != 1) {
+        throw std::runtime_error("Unable to read TIFF image data");
+    }
 }

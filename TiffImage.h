@@ -25,7 +25,7 @@ struct TiePoint {
 
 class TiffImage {
 public:
-    static TiffImage openTiff(const fs::path &p, const std::string &mode);
+    static TiffImage openTiff(const fs::path &p);
 
     static TiffImage openTiffFromMemory(const std::vector<uint8_t> &data);
 
@@ -55,12 +55,11 @@ public:
 
     [[nodiscard]] uint16_t getNumberOfDirectory() const;
 
-private:
-    friend WebPImage;
-    struct MyTIFF;
+    void readData(std::vector<uint32_t> &raster) const;
 
-    using tiff_ptr = std::unique_ptr<MyTIFF, void (*)(MyTIFF *)>;
-    tiff_ptr tif;
+private:
+    struct MyTIFF;
+    std::unique_ptr<MyTIFF, void (*)(MyTIFF *)> tif;
 
     explicit TiffImage(MyTIFF *imgPtr);
 };

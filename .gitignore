@@ -103,3 +103,5 @@ _deps
 # External projects
 *-prefix/
 
+/test.tif
+/test.webp

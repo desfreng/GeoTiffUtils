@@ -64,30 +64,17 @@ WebPImage::WebPImage() : pic(new MyWebPPicture, [](MyWebPPicture *p) {
 }
 
 WebPImage WebPImage::fromTiff(const TiffImage &tif) {
-    typedef uint32_t raster;
-
-    uint16_t samples_per_px = tif.getSamplesPerPixels();
-    if (!(samples_per_px == 1 || samples_per_px == 3 || samples_per_px == 4)) {
-        throw std::runtime_error("Unsupported TIFF image");
-    }
-
-    uint64_t image_width = tif.getImageWidth();
+    uint32_t image_width = tif.getImageWidth();
     uint32_t image_height = tif.getImageHeight();
 
-    uint64_t stride = image_width * sizeof(raster);
+    uint64_t stride = image_width * sizeof(uint32_t);
     if (!ImgIoUtilCheckSizeArgumentsOverflow(stride, image_height)) {
         throw std::runtime_error("TIFF image dimension (" + std::to_string(image_width) + "x" +
                                  std::to_string(image_height) + ") is too large");
     }
 
-    std::vector<uint16_t> extra_samples = tif.getExtraSamples();
     std::vector<uint32_t> raster_data;
-    raster_data.resize(stride * image_height);
-
-    if (TIFFReadRGBAImageOriented((TIFF *) tif.tif.get(), image_width, image_height, raster_data.data(),
-                                  ORIENTATION_TOPLEFT, 1) != 1) {
-        throw std::runtime_error("Unable to read TIFF image data");
-    }
+    tif.readData(raster_data);
 
     WebPImage pic;
     pic.pic->use_argb = true;
@@ -99,6 +86,7 @@ WebPImage WebPImage::fromTiff(const TiffImage &tif) {
     TIFFSwabArrayOfLong(raster_data.data(), image_width * image_height);
 #endif
     // if we have an alpha channel, we must un-multiply from rgbA to RGBA
+    std::vector<uint16_t> extra_samples = tif.getExtraSamples();
     if (extra_samples.size() == 1 && extra_samples[0] == EXTRASAMPLE_ASSOCALPHA) {
         uint32_t y;
         auto *tmp = (uint8_t *) raster_data.data();
@@ -114,7 +102,7 @@ WebPImage WebPImage::fromTiff(const TiffImage &tif) {
 
 void WebPImage::save(const fs::path &file) const {
     WebPConfig config;
-    WebPConfigPreset(&config, WEBP_PRESET_DRAWING, 50);
+    WebPConfigPreset(&config, WEBP_PRESET_DRAWING, 0);
 
     config.lossless = 1;
 

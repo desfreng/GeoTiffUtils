@@ -13,8 +13,7 @@ public:
 
 private:
     struct MyWebPPicture;
-    using webp_ptr = std::unique_ptr<MyWebPPicture, void(*)(MyWebPPicture*)>;
-    webp_ptr pic;
+    std::unique_ptr<MyWebPPicture, void(*)(MyWebPPicture*)> pic;
 
     explicit WebPImage();
 };
