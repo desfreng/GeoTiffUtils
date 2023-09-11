@@ -59,9 +59,14 @@ public:
 
 private:
     struct MyTIFF;
+    struct MyDataHandler;
+    
     std::unique_ptr<MyTIFF, void (*)(MyTIFF *)> tif;
+    std::unique_ptr<MyDataHandler, void (*)(MyDataHandler *)> dataHandler;
 
     explicit TiffImage(MyTIFF *imgPtr);
+
+    explicit TiffImage(MyTIFF *imgPtr, MyDataHandler *handler);
 };
 
 

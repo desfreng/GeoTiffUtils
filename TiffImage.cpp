@@ -32,10 +32,20 @@ static void GeoTiffDefaultDirectory(TIFF *tif) {
     TIFFMergeFieldInfo(tif, geoTiffFieldInfo, N(geoTiffFieldInfo));
 }
 
+
+static void errorHandler(const char *module, const char *fmt, va_list ap) {
+    static char buffer[1024];
+    memset(buffer, 0, 1024);
+    vsprintf(buffer, fmt, ap);
+    throw std::runtime_error(std::string(module) + " : " + std::string(buffer) + ".");
+}
+
+
 static void initTiffTags() {
     static bool init_done = false;
 
     if (!init_done) {
+        TIFFSetErrorHandler(errorHandler);
         TIFFSetTagExtender(GeoTiffDefaultDirectory);
         init_done = true;
     }
@@ -46,28 +56,44 @@ static void initTiffTags() {
  * Code taken from libwebp
  */
 
-typedef struct {
-    const uint8_t *data;
-    toff_t size;
+struct MyData {
+    explicit MyData(const std::vector<unsigned char> &d) : data(d), pos(0) {}
+
+    const std::vector<uint8_t> data;
     toff_t pos;
-} MyData;
+};
 
 static int MyClose(thandle_t opaque) {
     (void) opaque;
     return 0;
 }
 
+
 static toff_t MySize(thandle_t opaque) {
-    const MyData *const my_data = (MyData *) opaque;
-    return my_data->size;
+    auto *my_data = reinterpret_cast<MyData *>(opaque);
+    return my_data->data.size();
 }
 
 static toff_t MySeek(thandle_t opaque, toff_t offset, int whence) {
-    auto *const my_data = (MyData *) opaque;
-    offset += (whence == SEEK_CUR) ? my_data->pos
-                                   : (whence == SEEK_SET) ? 0
-                                                          : my_data->size;
-    if (offset > my_data->size) return (toff_t) -1;
+    auto *my_data = reinterpret_cast<MyData *>(opaque);
+    switch (whence) {
+        case SEEK_END:
+            offset += MySize(opaque);
+            break;
+        case SEEK_SET:
+            offset += 0;
+            break;
+        case SEEK_CUR:
+            offset += my_data->pos;
+            break;
+        default:
+            throw std::runtime_error("Unable to do seek operation : " + std::to_string(whence));
+    }
+
+    if (offset > MySize(opaque)) {
+        return (toff_t) -1;
+    }
+
     my_data->pos = offset;
     return offset;
 }
@@ -91,12 +117,12 @@ static void MyUnmapFile(thandle_t opaque, void *base, toff_t size) {
 }
 
 static tsize_t MyRead(thandle_t opaque, void *dst, tsize_t size) {
-    auto *const my_data = (MyData *) opaque;
-    if (my_data->pos + size > my_data->size) {
-        size = (tsize_t) (my_data->size - my_data->pos);
+    auto *my_data = reinterpret_cast<MyData *>(opaque);
+    if (my_data->pos + size > MySize(opaque)) {
+        size = (tsize_t) (MySize(opaque) - my_data->pos);
     }
     if (size > 0) {
-        memcpy(dst, my_data->data + my_data->pos, size);
+        memcpy(dst, my_data->data.data() + my_data->pos, size);
         my_data->pos += size;
     }
     return size;
@@ -107,21 +133,40 @@ static tsize_t MyRead(thandle_t opaque, void *dst, tsize_t size) {
 struct TiffImage::MyTIFF : public TIFF {
 };
 
-TiffImage::TiffImage(TiffImage::MyTIFF *imgPtr) : tif(imgPtr, (void (*)(MyTIFF *)) (&TIFFClose)) {}
+struct TiffImage::MyDataHandler : public MyData {
+    explicit MyDataHandler(const std::vector<unsigned char> &d) : MyData(d) {}
+};
+
+TiffImage::TiffImage(MyTIFF *imgPtr)
+        : tif(imgPtr, reinterpret_cast<void (*)(MyTIFF *)> (&TIFFClose)),
+          dataHandler(nullptr, [](MyDataHandler *) {}) {}
+
+TiffImage::TiffImage(MyTIFF *imgPtr, MyDataHandler *handler)
+        : tif(imgPtr, reinterpret_cast<void (*)(MyTIFF *)> (&TIFFClose)),
+          dataHandler(handler, [](MyDataHandler *e) { delete e; }) {}
 
 TiffImage TiffImage::openTiff(const fs::path &p) {
     initTiffTags();
-    auto *img = (MyTIFF *) (TIFFOpen(p.string().c_str(), "r"));
+    auto *img = reinterpret_cast<MyTIFF *> (TIFFOpen(p.string().c_str(), "r"));
+
+    if (img == nullptr) {
+        throw std::runtime_error("Unable to open file");
+    }
+
     return TiffImage(img);
 }
 
 TiffImage TiffImage::openTiffFromMemory(const std::vector<uint8_t> &data) {
     initTiffTags();
 
-    MyData my_data = {data.data(), data.size(), 0};
-    auto *tif = (MyTIFF *) TIFFClientOpen("Memory", "r", &my_data, MyRead, MyRead, MySeek, MyClose,
-                                          MySize, MyMapFile, MyUnmapFile);
-    return TiffImage(tif);
+    auto *my_data = reinterpret_cast<MyDataHandler *> (new MyData(data));
+    auto *tif = reinterpret_cast<MyTIFF *> (TIFFClientOpen("Memory", "r", my_data, MyRead, MyRead, MySeek, MyClose,
+                                                           MySize, MyMapFile, MyUnmapFile));
+    if (tif == nullptr) {
+        throw std::runtime_error("Unable to open file");
+    }
+
+    return TiffImage(tif, my_data);
 }
 
 uint16_t TiffImage::getBitPerSamples() const {
@@ -190,9 +235,10 @@ std::vector<TiePoint> TiffImage::getTiePoints() const {
         throw std::runtime_error("Unable to read TiePoints");
     }
     std::vector<TiePoint> res;
+    res.reserve(value_count / 6);
 
     for (int i = 0; i < value_count / 6; ++i) {
-        res.push_back(*((TiePoint *) raw_data + (6 * i)));
+        res.push_back(*(reinterpret_cast<TiePoint *>(raw_data) + (6 * i)));
     }
     return res;
 }

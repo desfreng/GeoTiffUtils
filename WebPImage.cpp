@@ -89,14 +89,14 @@ WebPImage WebPImage::fromTiff(const TiffImage &tif) {
     std::vector<uint16_t> extra_samples = tif.getExtraSamples();
     if (extra_samples.size() == 1 && extra_samples[0] == EXTRASAMPLE_ASSOCALPHA) {
         uint32_t y;
-        auto *tmp = (uint8_t *) raster_data.data();
+        auto *tmp = reinterpret_cast<uint8_t *>(raster_data.data());
         for (y = 0; y < image_height; ++y) {
             MultARGBRow(tmp, image_width);
             tmp += stride;
         }
     }
 
-    WebPPictureImportRGBX(pic.pic.get(), (const uint8_t *) raster_data.data(), (int) stride);
+    WebPPictureImportRGBX(pic.pic.get(), reinterpret_cast<const uint8_t *>(raster_data.data()), (int) stride);
     return pic;
 }
 

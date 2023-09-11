@@ -2,7 +2,6 @@
 #define GEO_TIFF_UTILS_WEBP_IMAGE_H
 
 #include "TiffImage.h"
-#include "webp/encode.h"
 
 class WebPImage {
 public:
